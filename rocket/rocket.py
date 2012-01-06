@@ -13,8 +13,8 @@
 # limitations under the License.
 
 
-
-import logging, base64
+import base64
+import logging
 
 from google.appengine.api import datastore, datastore_types, datastore_errors
 from google.appengine.api import lib_config
@@ -30,186 +30,176 @@ CHANGE_THIS = "change_this"
 # see http://code.google.com/appengine/docs/python/tools/appengineconfig.html#Configuring_Your_Own_Modules
 _config = lib_config.register('approcket', {'SECRET_KEY': rocket.key.SECRET_KEY})
 
-
 class Rocket(webapp.RequestHandler):
-    
-    def unauthorized(self, error = None):
+
+    def unauthorized(self, error=None):
         self.error(403)
         if error:
             logging.error(u"Unauthorized: %s" % error)
             self.response.out.write(u'<error>Unauthorized: %s</error>\n' % error)
         else:
             logging.error(u"Unauthorized")
-    
-    
-    
-    def bad_request(self, error):    
+
+    def bad_request(self, error):
         self.error(400)
         logging.error(u"Bad Request: %s" % error)
         self.response.out.write(u'<error>%s</error>\n' % error)
 
-
-
-    def not_found(self, error):    
+    def not_found(self, error):
         self.error(404)
         logging.error(u"Not Found: %s" % error)
         self.response.out.write(u'<error>%s</error>\n' % error)
-        
-        
-        
+
     def server_error(self, error, exception=None):
         self.error(500)
-        
-        if exception != None:            
-            logging.exception(u"Server Error: %s" % error)            
+
+        if exception != None:
+            logging.exception(u"Server Error: %s" % error)
             self.response.out.write(u'<error>Server Error: %s\n%s</error>\n' % (error, exception))
         else:
             logging.error(u"Server Error: %s" % error)
-            self.response.out.write(u'<error>Server Error: %s</error>\n' % error)            
-        
-        
-        
-    def get(self):    
+            self.response.out.write(u'<error>Server Error: %s</error>\n' % error)
+
+    def get(self):
         path = self.request.path.split("/")
-                
+
         self.response.headers['Content-Type'] = 'text/xml'
 
         if _config.SECRET_KEY == CHANGE_THIS:
             return self.unauthorized("Please change the default secret key in key.py")
-        
-        if self.request.get("secret_key") !=  _config.SECRET_KEY:
-            return self.unauthorized() 
-            
-        if len(path) < 3 or path[2] == '': 
+
+        if self.request.get("secret_key") != _config.SECRET_KEY:
+            return self.unauthorized()
+
+        if len(path) < 3 or path[2] == '':
             return self.bad_request("Please specify an entity kind")
-        
+
         kind = path[2]
-    
-        self.response.out.write(u'<?xml version="1.0" encoding="UTF-8"?>\n')    
+
+        self.response.out.write(u'<?xml version="1.0" encoding="UTF-8"?>\n')
         self.response.out.write(u'<updates>\n')
-        
+
         query = datastore.Query(kind)
-        
+
         timestamp_field = self.request.get("timestamp")
         if not timestamp_field:
-            timestamp_field = DEFAULT_TIMESTAMP_FIELD        
-       
+            timestamp_field = DEFAULT_TIMESTAMP_FIELD
+
         batch_size = self.request.get("count")
         if not batch_size:
             batch_size = DEFAULT_BATCH_SIZE
         else:
             batch_size = int(batch_size)
-            
-        f = self.request.get("from") 
-        if f: 
+
+        f = self.request.get("from")
+        if f:
             query['%s >' % timestamp_field] = from_iso(f)
-    
+
         query.Order(timestamp_field)
-            
+
         entities = query.Get(batch_size, 0)
-        
+
         for entity in entities:
             self.response.out.write(u'    <%s key="%s">\n' % (kind, ae_to_rocket(TYPE_KEY, entity.key())))
-            
+
             for field, value in entity.items():
                 if isinstance(value, list):
                     if len(value) > 0 and value[0] != None:
                         field_type = get_type(value[0])
                         self.response.out.write(u'        <%s type="%s" list="true">\n' % (field, field_type))
                         for item in value:
-                            self.response.out.write(u"            <item>%s</item>\n" % ae_to_rocket(field_type, item))                    
+                            self.response.out.write(u"            <item>%s</item>\n" % ae_to_rocket(field_type, item))
                         self.response.out.write(u'</%s>\n' % field)
                 else:
-                    if value != None:  
+                    if value != None:
                         if field == timestamp_field:
                             field_type = TYPE_TIMESTAMP
                         else:
                             field_type = get_type(value)
-                        
-                        self.response.out.write(u'        <%s type="%s">%s</%s>\n' % (field, field_type, ae_to_rocket(field_type, value), field))                
-    
+
+                        self.response.out.write(u'        <%s type="%s">%s</%s>\n' % (field, field_type, ae_to_rocket(field_type, value), field))
+
             self.response.out.write(u'    </%s>\n' % kind)
-                
+
         self.response.out.write(u'</updates>')
-        
-        
+
     def post(self):
         path = self.request.path.split("/")
-        
+
         self.response.headers['Content-Type'] = 'text/plain'
 
-        if _config.SECRET_KEY == CHANGE_THIS:
-            return self.unauthorized("Please change the default secret key in key.py")        
-        
-        if self.request.get("secret_key") !=  _config.SECRET_KEY:
+        if SECRET_KEY == CHANGE_THIS:
+            return self.unauthorized("Please change the default secret key in key.py")
+
+        if self.request.get("secret_key") != _config.SECRET_KEY:
             return self.unauthorized()
-        
-        if len(path) < 3 or path[2] == '': 
+
+        if len(path) < 3 or path[2] == '':
             return self.bad_request(u'Please specify an entity kind\n')
-        
+
         kind = path[2]
-        
+
         entity = None
         clear_cache = False
-        
+
         key_name_or_id = self.request.get(TYPE_KEY)
         if key_name_or_id:
             if key_name_or_id[0] in "0123456789":
-                key = datastore.Key.from_path(kind, int(key_name_or_id)) # KEY ID
+                key = datastore.Key.from_path(kind, int(key_name_or_id))  # KEY ID
             else:
-                key = datastore.Key.from_path(kind, key_name_or_id) # KEY NAME
-                
-            try: entity = datastore.Get(key)
-            except datastore_errors.EntityNotFoundError: pass
-            
+                key = datastore.Key.from_path(kind, key_name_or_id)  # KEY NAME
+
+            try:
+                entity = datastore.Get(key)
+            except datastore_errors.EntityNotFoundError:
+                pass
+
         if not entity:
             if key_name_or_id:
-                
+
                 if key_name_or_id[0] in "0123456789":
                     return self.not_found(u'Entity with AppEngine ID=%s is not found.\n' % key_name_or_id)
-                    
-                entity = datastore.Entity(kind=kind,name=key_name_or_id)
+
+                entity = datastore.Entity(kind=kind, name=key_name_or_id)
             else:
                 entity = datastore.Entity(kind=kind)
         else:
             clear_cache = True
-                
+
         args = self.request.arguments()
         for arg in args:
-            if arg != TYPE_KEY:                
+            if arg != TYPE_KEY:
                 bar = arg.find('|')
                 if bar > 0:
                     field_type = arg[:bar]
                     field_name = arg[bar + 1:]
-                    value = self.request.get(arg)                    
+                    value = self.request.get(arg)
                     if field_type.startswith("*"):
                         field_type = field_type[1:]
                         if len(value) == 0:
-                            if entity.has_key(field_name):
+                            if field_name in entity:
                                 del entity[field_name]
                         else:
                             entity[field_name] = map(lambda v: rocket_to_ae(field_type, v), value.split('|'))
                     else:
                         entity[field_name] = rocket_to_ae(field_type, value)
-                            
+
         datastore.Put(entity)
-        
+
         after_send = self.request.get("after_send")
         if after_send:
             try:
                 i = after_send.rfind('.')
                 if i <= 0:
-                    raise Exception("No module specified")                                
+                    raise Exception("No module specified")
                 p = after_send[:i]
-                m = after_send[i+1:]
+                m = after_send[i + 1:]
                 exec "from %s import %s as after_send_method" % (p, m) in locals()
                 exec "after_send_method(entity)" in locals()
-            except Exception, e:                
-                return self.server_error("Error invoking AFTER_SEND event handler (%s)" % after_send,e)
-        
+            except Exception, e:
+                return self.server_error("Error invoking AFTER_SEND event handler (%s)" % after_send, e)
+
         self.response.out.write(u'<ok/>')
-
-
 
 
 def get_type(value):
@@ -231,9 +221,8 @@ def get_type(value):
         return TYPE_BLOB
     else:
         return TYPE_STR
-                
-    return None
 
+    return None
 
 
 def ae_to_rocket(field_type, ae_value):
@@ -254,9 +243,8 @@ def ae_to_rocket(field_type, ae_value):
         rocket_value = base64.b64encode(ae_value)
     else:
         rocket_value = escape(u"%s" % ae_value)
-        
-    return rocket_value
 
+    return rocket_value
 
 
 def rocket_to_ae(field_type, rocket_value):
@@ -273,23 +261,23 @@ def rocket_to_ae(field_type, rocket_value):
     elif field_type == TYPE_INT:
         ae_value = int(rocket_value)
     elif field_type == TYPE_TEXT:
-        ae_value = datastore_types.Text(rocket_value.replace('&#124;','|'))
+        ae_value = datastore_types.Text(rocket_value.replace('&#124;', '|'))
     elif field_type == TYPE_REFERENCE:
         slash = rocket_value.find("/")
         if slash > 0:
             kind = rocket_value[:slash]
-            key_name_or_id = rocket_value[slash + 1:]        
+            key_name_or_id = rocket_value[slash + 1:]
             if key_name_or_id[0] in "0123456789":
                 key_name_or_id = int(key_name_or_id)
-            ae_value = datastore.Key.from_path(kind, key_name_or_id)  
+            ae_value = datastore.Key.from_path(kind, key_name_or_id)
         else:
             logging.error("invalid reference value: %s" % rocket_value)
             ae_value = None
     elif field_type == TYPE_BLOB:
         ae_value = datastore_types.Blob(base64.b64decode(rocket_value))
-    else: #str
-        ae_value = (u"%s" % rocket_value).replace('&#124;','|')
-    
+    else:  # str
+        ae_value = (u"%s" % rocket_value).replace('&#124;', '|')
+
     return ae_value
 
 
@@ -312,9 +300,10 @@ application = webapp.WSGIApplication(
     )
 
 
+
 def main():
-  run_wsgi_app(application)
+    run_wsgi_app(application)
 
 
 if __name__ == "__main__":
-  main()
+    main()
