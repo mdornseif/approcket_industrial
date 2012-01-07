@@ -22,16 +22,23 @@ from google.appengine.ext.db import stats
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 
-import rocket.key
+# Try to export additional libraries in `/lib/` subdirectory.
+try:
+    import lib
+except ImportError:
+    pass
+
+from rocket import key
 from rocket.common import *
 
 CHANGE_THIS = "change_this"
 
-# see http://code.google.com/appengine/docs/python/tools/appengineconfig.html#Configuring_Your_Own_Modules
-_config = lib_config.register('approcket', {'SECRET_KEY': rocket.key.SECRET_KEY})
+# see http://code.google.com/appengine/docs/python/tools/appengineconfig.html
+_config = lib_config.register('approcket', {'SECRET_KEY': key.SECRET_KEY})
+
 
 class Rocket(webapp.RequestHandler):
-
+    """Handels all replication requests."""
     def unauthorized(self, error=None):
         self.error(403)
         if error:
@@ -79,25 +86,17 @@ class Rocket(webapp.RequestHandler):
         self.response.out.write(u'<?xml version="1.0" encoding="UTF-8"?>\n')
         self.response.out.write(u'<updates>\n')
 
+
+        timestamp_field = self.request.get("timestamp", DEFAULT_TIMESTAMP_FIELD)
+        batch_size = int(self.request.get("count", DEFAULT_BATCH_SIZE))
+
         query = datastore.Query(kind)
-
-        timestamp_field = self.request.get("timestamp")
-        if not timestamp_field:
-            timestamp_field = DEFAULT_TIMESTAMP_FIELD
-
-        batch_size = self.request.get("count")
-        if not batch_size:
-            batch_size = DEFAULT_BATCH_SIZE
-        else:
-            batch_size = int(batch_size)
-
         f = self.request.get("from")
         if f:
-            query['%s >' % timestamp_field] = from_iso(f)
+            query.filter('%s >=' % timestamp_field, from_iso(f))
 
-        query.Order(timestamp_field)
-
-        entities = query.Get(batch_size, 0)
+        query.order(timestamp_field)
+        entities = query.fetch(batch_size)
 
         for entity in entities:
             self.response.out.write(u'    <%s key="%s">\n' % (kind, ae_to_rocket(TYPE_KEY, entity.key())))
@@ -121,6 +120,7 @@ class Rocket(webapp.RequestHandler):
 
             self.response.out.write(u'    </%s>\n' % kind)
 
+        #self.response.our.write(u'     <cursor>%s</cursor>' % query.cursor())
         self.response.out.write(u'</updates>')
 
     def post(self):
