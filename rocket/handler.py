@@ -30,8 +30,10 @@ from rocket.common import *
 
 CHANGE_THIS = "change_this"
 
-# see http://code.google.com/appengine/docs/python/tools/appengineconfig.html#Configuring_Your_Own_Modules
-_config = lib_config.register('approcket', {'SECRET_KEY': rocket.key.SECRET_KEY})
+# see http://code.google.com/appengine/docs/python/tools/appengineconfig.html
+_config = lib_config.register('approcket', {'SECRET_KEY': key.SECRET_KEY,
+                                            'READONLY': False})
+
 
 class Rocket(webapp.RequestHandler):
 
@@ -131,10 +133,17 @@ class Rocket(webapp.RequestHandler):
 
         self.response.headers['Content-Type'] = 'text/plain'
 
+<<<<<<< HEAD
         if SECRET_KEY == CHANGE_THIS:
             return self.unauthorized("Please change the default secret key in key.py")
 
         if self.request.get("secret_key") != _config.SECRET_KEY:
+=======
+        if _config.SECRET_KEY == CHANGE_THIS:
+            return self.unauthorized("Please change the default secret key in key.py")        
+        
+        if self.request.get("secret_key") !=  _config.SECRET_KEY:
+>>>>>>> keepkeysecret
             return self.unauthorized()
 
         if len(path) < 3 or path[2] == '':
@@ -302,11 +311,19 @@ application = webapp.WSGIApplication(
      ('/rocket/.*', Rocket)]
     )
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> keepkeysecret
 
 def main():
     run_wsgi_app(application)
 
 
+
 if __name__ == "__main__":
+<<<<<<< HEAD
     main()
+=======
+  main()
+>>>>>>> keepkeysecret
