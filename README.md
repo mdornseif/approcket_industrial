@@ -28,7 +28,7 @@ Generate a secret key and add it to `appengine_config.py`
 
 Now your application is ready to deploy.
 
-If you want to make absolutely sure that no external process modifies your datastore set ``
+If you want to make absolutely sure that no external process modifies your datastore set `approchet_README = True` in ` appengine_config.py`.
 
 
 Checking you models
