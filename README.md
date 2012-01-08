@@ -28,7 +28,7 @@ Generate a secret key and add it to `appengine_config.py`
 
 Now your application is ready to deploy.
 
-If you want to make absolutely sure that no external process modifies your datastore set `approchet_README = True` in ` appengine_config.py`.
+If you want to make absolutely sure that no external process modifies your datastore set `approcket_READONLY = True` in `appengine_config.py`.
 
 
 Checking you models
@@ -39,4 +39,3 @@ Your models need an automatically timestamped files like this:
     timestamp = db.DateTimeProperty(auto_now=True, indexed=True)
 
 If you have created the field with `indexed=False` approcket can not work.
-

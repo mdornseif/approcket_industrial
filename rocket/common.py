@@ -56,7 +56,7 @@ RECEIVE_FIELDS_EXCLUDE = "RFE"
 SEND_FIELDS = "SF"
 SEND_FIELDS_EXCLUDE = "SFE"
 
-EMBEDDED_LIST_FIELDS = "ELF" 
+EMBEDDED_LIST_FIELDS = "ELF"
 
 AFTER_SEND = "AFTER_SEND"
 
@@ -64,29 +64,31 @@ IDLE_TIME = "IDLE"
 
 
 def escape(text):
-    
-    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
-
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace(
+                        '>', '&gt;').replace('"', '&quot;').replace(
+                        "'", '&#39;')
 
 
 def from_iso(s):
     dt = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
-    try: dt = dt.replace(microsecond = int(s[20:]))
-    except: pass
+    try:
+        dt = dt.replace(microsecond=int(s[20:]))
+    except:
+        pass
     return dt
+
 
 def to_iso(dt):
     return dt.isoformat()
 
 
-
 class Log:
     def __init__(self, f):
         self.f = f
-        
+
     def write(self, s):
         sys.stdout.write(s)
-        self.f.write(s)        
-        
+        self.f.write(s)
+
     def flush(self):
         self.f.flush()
