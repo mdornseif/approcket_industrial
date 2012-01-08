@@ -21,6 +21,7 @@ import logging
 
 from google.appengine.api import datastore, datastore_types, datastore_errors
 from google.appengine.api import lib_config
+from google.appengine.datastore import datastore_query
 from google.appengine.ext.db import stats
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
@@ -71,7 +72,7 @@ class Rocket(webapp.RequestHandler):
             logging.error(u"Server Error: %s" % error)
             self.response.out.write(u'<error>Server Error: %s</error>\n' % error)
 
-    def get(self):
+    def get(self, kind):
         path = self.request.path.split("/")
 
         self.response.headers['Content-Type'] = 'text/xml'
@@ -82,29 +83,33 @@ class Rocket(webapp.RequestHandler):
         if self.request.get("secret_key") != _config.SECRET_KEY:
             return self.unauthorized()
 
-        if len(path) < 3 or path[2] == '':
-            return self.bad_request("Please specify an entity kind")
-
-        kind = path[2]
-
         self.response.out.write(u'<?xml version="1.0" encoding="UTF-8"?>\n')
         self.response.out.write(u'<updates>\n')
-
 
         timestamp_field = self.request.get("timestamp", DEFAULT_TIMESTAMP_FIELD)
         batch_size = int(self.request.get("count", DEFAULT_BATCH_SIZE))
 
-        query = datastore.Query(kind)
+        if self.request.get("cursor"):
+            cursor = self.request.get("cursor")
+            cursor = datastore_query.Cursor.from_websafe_string(cursor)
+            query = datastore.Query(kind, cursor=cursor)
+        else:
+            query = datastore.Query(kind)
+
         f = self.request.get("from")
         if f:
-            query.filter('%s >=' % timestamp_field, from_iso(f))
-
-        query.order(timestamp_field)
-        entities = query.fetch(batch_size)
+            query['%s >' % timestamp_field] = from_iso(f)
+            # "Note that a sort order implies an existence filter! In other
+            # words, Entities without the sort order property are filtered
+            # out, and *not* included in the query results."
+            query.Order(timestamp_field)
+        entities = query.Get(batch_size)
 
         for entity in entities:
-            self.response.out.write(u'    <%s key="%s">\n' % (kind, ae_to_rocket(TYPE_KEY, entity.key())))
-
+            parent = entity.key().parent()
+            if not parent:
+                parent = ''
+            self.response.out.write(u'    <%s key="%s" datastorekey="%s" parent="%s">\n' % (kind, ae_to_rocket(TYPE_KEY, entity.key()), str(entity.key()), parent))
             for field, value in entity.items():
                 if isinstance(value, list):
                     if len(value) > 0 and value[0] != None:
@@ -124,7 +129,7 @@ class Rocket(webapp.RequestHandler):
 
             self.response.out.write(u'    </%s>\n' % kind)
 
-        #self.response.our.write(u'     <cursor>%s</cursor>' % query.cursor())
+        self.response.out.write(u'     <_cursor type="str">%s</_cursor>' % str(query.GetCursor().to_websafe_string()))
         self.response.out.write(u'</updates>')
 
     def post(self):
@@ -300,7 +305,7 @@ class RocketModelList(Rocket):
 
 application = webapp.WSGIApplication(
     [('/rocket/_modellist.txt', RocketModelList),
-     ('/rocket/.*', Rocket)]
+     ('/rocket/(.*)', Rocket)]
     )
 
 
