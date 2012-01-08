@@ -1,3 +1,6 @@
+# Approcket replication handler for AppEngine
+# To be included in you app.yaml
+#
 # Copyright 2009 Kaspars Dancis, Kurt Daal
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,16 +20,19 @@
 import logging, base64
 
 from google.appengine.api import datastore, datastore_types, datastore_errors
-
+from google.appengine.api import lib_config
+from google.appengine.ext.db import stats
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 
-from rocket.key import SECRET_KEY
-
+import rocket.key
 from rocket.common import *
 
 CHANGE_THIS = "change_this"
 
+# see http://code.google.com/appengine/docs/python/tools/appengineconfig.html
+_config = lib_config.register('approcket', {'SECRET_KEY': key.SECRET_KEY,
+                                            'READONLY': False})
 
 
 class Rocket(webapp.RequestHandler):
@@ -72,10 +78,10 @@ class Rocket(webapp.RequestHandler):
                 
         self.response.headers['Content-Type'] = 'text/xml'
 
-        if SECRET_KEY == CHANGE_THIS:
+        if _config.SECRET_KEY == CHANGE_THIS:
             return self.unauthorized("Please change the default secret key in key.py")
         
-        if self.request.get("secret_key") !=  SECRET_KEY:
+        if self.request.get("secret_key") !=  _config.SECRET_KEY:
             return self.unauthorized() 
             
         if len(path) < 3 or path[2] == '': 
@@ -136,10 +142,10 @@ class Rocket(webapp.RequestHandler):
         
         self.response.headers['Content-Type'] = 'text/plain'
 
-        if SECRET_KEY == CHANGE_THIS:
+        if _config.SECRET_KEY == CHANGE_THIS:
             return self.unauthorized("Please change the default secret key in key.py")        
         
-        if self.request.get("secret_key") !=  SECRET_KEY:
+        if self.request.get("secret_key") !=  _config.SECRET_KEY:
             return self.unauthorized()
         
         if len(path) < 3 or path[2] == '': 
@@ -289,13 +295,30 @@ def rocket_to_ae(field_type, rocket_value):
         ae_value = (u"%s" % rocket_value).replace('&#124;','|')
     
     return ae_value
-                                                                
-             
 
-application = webapp.WSGIApplication([('/rocket/.*', Rocket)], debug=True)
+
+class RocketModelList(Rocket):
+    """Get a List of all Models in this Application"""
+
+    def get(self):
+        if self.request.get("secret_key") != _config.SECRET_KEY:
+            return self.unauthorized()
+
+        self.response.headers['Content-Type'] = 'text/plain'
+
+        for kind in stats.KindStat.all().run():
+            if not kind.kind_name.startswith('_'):
+                self.response.write('%s\n' % kind.kind_name)
+
+application = webapp.WSGIApplication(
+    [('/rocket/_modellist.txt', RocketModelList),
+     ('/rocket/.*', Rocket)]
+    )
+
 
 def main():
   run_wsgi_app(application)
+
 
 if __name__ == "__main__":
   main()
