@@ -301,7 +301,7 @@ class RocketModelList(Rocket):
 
         for kind in stats.KindStat.all().run():
             if not kind.kind_name.startswith('_'):
-                self.response.write('%s\n' % kind.kind_name)
+                self.response.out.write('%s\n' % kind.kind_name)
 
 application = webapp.WSGIApplication(
     [('/rocket/_modellist.txt', RocketModelList),
