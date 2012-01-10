@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import urllib
+import hashlib
 from datetime import timedelta
 from optparse import OptionParser
 from sys import stdout
@@ -34,33 +35,31 @@ from xml.parsers.expat import ExpatError
 import MySQLdb as db
 
 from common import *
-from config import *
-from key import SECRET_KEY
 
 
-KEY_FIELD = '_rocket_key'
-TIMESTAMP_FIELD = 'created_at'
+TIMESTAMP_FIELD = 'updated_at'
 BATCH_SIZE = 5
 
 
 def get_db_connection():
     """Get a database connection."""
+    global options
     kwargs = {
         'charset': 'utf8',
         'use_unicode': True,
     }
-    if DATABASE_USER:
-        kwargs['user'] = DATABASE_USER
-    if DATABASE_NAME:
-        kwargs['db'] = DATABASE_NAME
-    if DATABASE_PASSWORD:
-        kwargs['passwd'] = DATABASE_PASSWORD
-    if DATABASE_HOST.startswith('/'):
-        kwargs['unix_socket'] = DATABASE_HOST
-    elif DATABASE_HOST:
-        kwargs['host'] = DATABASE_HOST
-    if DATABASE_PORT:
-        kwargs['port'] = int(DATABASE_PORT)
+    if options.database_user:
+        kwargs['user'] = options.database_user
+    if options.database_name:
+        kwargs['db'] = options.database_name
+    if options.database_password:
+        kwargs['passwd'] = options.database_password
+    if options.database_host.startswith('/'):
+        kwargs['unix_socket'] = options.database_host
+    elif options.database_host:
+        kwargs['host'] = options.database_host
+    if options.database_port:
+        kwargs['port'] = int(options.database_port)
     return db.connect(**kwargs)
 
 
@@ -87,11 +86,11 @@ def get_state(kind):
         # create table and insert empty entry
         cur.execute("""CREATE TABLE _rocket_station
                        (kind VARCHAR(255),
-                        send_state VARCHAR(500),
-                        receive_state VARCHAR(500),
-                        receive_cursor VARCHAR(500),
+                        send_state VARCHAR(255),
+                        receive_state VARCHAR(255),
+                        receive_cursor VARCHAR(255),
                         PRIMARY KEY (kind))
-                        ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % DATABASE_ENGINE)
+                        ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % options.database_engine)
         logging.info("creeating _rocket_station")
         cur.execute("""INSERT INTO _rocket_station (kind) VALUES (%s)""", kind)
         logging.info("inserting _rocket_station.%s" % kind)
@@ -101,14 +100,13 @@ def get_state(kind):
 
 
 class Table:
-    def __init__(self, kind, timestamp_field, key_field):
+    def __init__(self, kind, timestamp_field):
         self.table_name = self.name = kind.lower()
         self.kind = kind
         self.timestamp_field = timestamp_field
-        self.key_field = key_field
+        self.key_field = '_key'
 
         self.fields = {}
-        self.fields[key_field] = TYPE_KEY
         self.fields[timestamp_field] = TYPE_TIMESTAMP
 
         self.list_fields = {}
@@ -123,7 +121,7 @@ def setup_table(kind):
     cur.execute('SHOW tables LIKE "%s"' % table_name)
     if cur.fetchone():  # table exist
         # start with empty definition
-        table = Table(kind, TIMESTAMP_FIELD, KEY_FIELD)
+        table = Table(kind, TIMESTAMP_FIELD)
         # add table fields
         cur.execute('SHOW COLUMNS FROM %s' % table_name)
         for col in cur.fetchall():
@@ -145,33 +143,20 @@ def setup_table(kind):
                     break
     else:
         # self.table is missing
-        print (
-            """CREATE TABLE %s (%s VARCHAR(255) NOT NULL,
-                                %s TIMESTAMP, PRIMARY KEY(%s),
-                                INDEX %s(%s))
-               ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % (
-                table_name,
-                KEY_FIELD,
-                TIMESTAMP_FIELD,
-                KEY_FIELD,
-                TIMESTAMP_FIELD,
-                TIMESTAMP_FIELD,
-                DATABASE_ENGINE,
-            ))
         cur.execute(
             """CREATE TABLE %s (%s VARCHAR(255) NOT NULL,
                                 %s TIMESTAMP, PRIMARY KEY(%s),
                                 INDEX %s(%s))
                ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % (
                 table_name,
-                KEY_FIELD,
+                '_key',
                 TIMESTAMP_FIELD,
-                KEY_FIELD,
+                '_key',
                 TIMESTAMP_FIELD,
                 TIMESTAMP_FIELD,
-                DATABASE_ENGINE,
+                options.database_engine,
             ))
-        table = Table(table_name, TIMESTAMP_FIELD, KEY_FIELD)
+        table = Table(table_name, TIMESTAMP_FIELD)
     con.commit()
     cur.close()
     # reading existing replication state if available
@@ -188,7 +173,7 @@ def replicate(kind, options):
     timestamps = []
     while count == options.batchsize:
         count = 0
-        url = "%s/%s?secret_key=%s&count=%d" % (ROCKET_URL, kind, SECRET_KEY, options.batchsize)
+        url = "%s/%s?secret_key=%s&count=%d" % (options.rocketurl, kind, options.secretkey, options.batchsize)
         if table._receive_cursor:
             url += "&cursor=%s" % table._receive_cursor
             logging.info("Receive %s: from %s" % (kind, table._receive_cursor))
@@ -204,7 +189,6 @@ def replicate(kind, options):
         response = result.read()
         if result.code != 200:
             raise RuntimeError("Receive %s: error retrieving updates, code=%d, URL=%s, response=%s" % (kind, result.code, url, response))
-        print url
         logging.debug("Received %s: %d bytes" % (kind, len(response)))
 
         xml = ElementTree.XML(response)
@@ -230,20 +214,18 @@ def receive_row(cur, table, entity):
     values = []
 
     table = get_table_metadata(cur, table)
-    key = rocket_to_mysql(TYPE_KEY, entity.attrib[TYPE_KEY])
-    logging.debug("Receive %s: key=%s" % (table.kind, key))
+    key = hashlib.md5(entity.attrib["datastorekey"]).hexdigest()
     row = None
-    datastore_key = entity.attrib["datastorekey"]
     parent = entity.attrib["parent"]
 
     for field in entity:
         field_name = field.tag
-        if field_name == '_key':
-            datastore_key = field.text
         field_type = field.attrib["type"]
         if field_type == TYPE_REFERENCE:
             field_name += "_ref"
         is_list = "list" in field.attrib
+        if field_name == '_key':
+            continue
         synchronize_field(cur, table, field_name, field_type, is_list, key)
 
         if is_list:
@@ -251,8 +233,8 @@ def receive_row(cur, table, entity):
             sql = 'DELETE FROM ' + list_table_name + ' WHERE ' + table.key_field + """ = %s"""
             cur.execute(sql, (key))
             for item in field:
-                sql = 'INSERT INTO ' + list_table_name + ' (_key, ' + table.key_field + ',' + field_name + """) VALUES (%s, %s, %s)"""
-                cur.execute(sql, (datastore_key, key, rocket_to_mysql(field_type, item.text)))
+                sql = 'INSERT INTO ' + list_table_name + ' (' + table.key_field + ',' + field_name + """) VALUES (%s, %s)"""
+                cur.execute(sql, (key, rocket_to_mysql(field_type, item.text)))
         else:
             fields.append("`%s`" % field_name)
             values.append(rocket_to_mysql(field_type, field.text))
@@ -270,7 +252,6 @@ def receive_row(cur, table, entity):
         values.append(key)
         sql = 'INSERT INTO `%s` (%s) VALUES (%s)' % (table.table_name, ','.join(fields), ','.join(map(lambda f: """%s""", fields)))
         cur.execute(sql, values)
-        # logging.debug("creating %s" % entity)
 
 
 def get_table_metadata(cur, table):
@@ -330,11 +311,10 @@ def create_field(cur, table_name, table_key_field, field_name, field_type, is_li
         # this is list field - create a separate table for it
         list_table_name = "%s_%s" % (table_name, field_name)
         cur.execute("""CREATE TABLE %s (id BIGINT NOT NULL AUTO_INCREMENT,
-                                        %s VARCHAR(255) NOT NULL,
                                         _key VARCHAR(255) NOT NULL,
                                         PRIMARY KEY(id),
                                         INDEX k(%s))
-                       ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % (list_table_name, table_key_field, table_key_field, DATABASE_ENGINE))
+                       ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % (list_table_name, table_key_field, options.database_engine))
         create_field(cur, list_table_name, table_key_field, field_name, field_type, False)
     else:
         if field_type == TYPE_DATETIME:
@@ -352,11 +332,11 @@ def create_field(cur, table_name, table_key_field, field_name, field_type, is_li
         elif field_type == TYPE_TEXT or field_type == TYPE_EMB_LIST:
             cur.execute("ALTER TABLE %s ADD COLUMN `%s` TEXT" % (table_name, field_name))
         elif field_type == TYPE_KEY or field_type == TYPE_REFERENCE:
-            cur.execute("ALTER TABLE %s ADD COLUMN `%s` VARCHAR(500)" % (table_name, field_name))
+            cur.execute("ALTER TABLE %s ADD COLUMN `%s` VARCHAR(255)" % (table_name, field_name))
         elif field_type == TYPE_BLOB:
             cur.execute("ALTER TABLE %s ADD COLUMN `%s` BLOB" % (table_name, field_name))
         else:  # str
-            cur.execute("ALTER TABLE %s ADD COLUMN `%s` VARCHAR(500)" % (table_name, field_name))
+            cur.execute("ALTER TABLE %s ADD COLUMN `%s` VARCHAR(255)" % (table_name, field_name))
 
 
 def rocket_to_mysql(field_type, rocket_value):
@@ -399,25 +379,45 @@ def rocket_to_mysql(field_type, rocket_value):
     return mysql_value
 
 
-def get_model_list():
-    url = "%s/_modellist.txt?secret_key=%s" % (ROCKET_URL, SECRET_KEY)
+def get_model_list(options):
+    url = "%s/_modellist.txt?secret_key=%s" % (options.rocketurl, options.secretkey)
     logging.debug('requesting %s', url)
     response = urllib.urlopen(url)
     result = response.read()
     if response.code != 200:
-        raise RuntimeError("error retrieving %s: %s" % (url, response))
+        raise RuntimeError("error retrieving %s: %s" % (url, result))
     models = result.split()
     return models
 
 
 def main():
+    global options
     parser = OptionParser()
     parser.add_option("-d", "--debug", action="store_true",
                       help="output debugging information")
     parser.add_option("-q", "--quiet", action="store_true",
                       help="output only error messing")
-    parser.add_option("-b", "--batchsize", type="int", default=100,
+    parser.add_option("-m", "--model",
+                      help="transfer a single Model")
+    parser.add_option("-s", "--secretkey",
+                      help="secret key used by server")
+    parser.add_option("-r", "--rocketurl",
+                      help="url where approcket is running on GAE")
+    parser.add_option("-b", "--batchsize", type="int", default=250,
                       help="entitys to transfer per HTTP-Request [%default]")
+    parser.add_option("--database_host", default="localhost",
+                      help="MySQL host [%default]")
+    parser.add_option("--database_name", default="approcket",
+                      help="MySQL database [%default]")
+    parser.add_option("--database_user", default="approcket",
+                      help="MySQL username [%default]")
+    parser.add_option("--database_password", default="approcket_pw",
+                      help="MySQL password [%default]")
+    parser.add_option("--database_port", type="int", default=3306,
+                      help="MySQL password [%default]")
+    parser.add_option("--database_engine", default="InnoDB",
+                      help="MySQL password [%default]")
+
     (options, args) = parser.parse_args()
     if options.debug:
         logging.basicConfig(level=logging.DEBUG,
@@ -428,8 +428,11 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s %(levelname)s %(message)s')
-    for model in get_model_list():
-        replicate(model, options)
+    if options.model:
+        replicate(options.model, options)
+    else:
+        for model in get_model_list(options):
+            replicate(model, options)
 
 
 if __name__ == "__main__":
