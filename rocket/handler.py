@@ -18,6 +18,7 @@
 
 import base64
 import logging
+import re
 
 from google.appengine.api import datastore, datastore_types, datastore_errors
 from google.appengine.api import lib_config
@@ -253,7 +254,11 @@ def ae_to_rocket(field_type, ae_value):
     else:
         rocket_value = escape(u"%s" % ae_value)
 
-    return rocket_value
+    # certain chars < 0x20 are illegal in XML.
+    # http://www.w3.org/TR/REC-xml/#charsets
+    return re.sub('[\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f]+',
+                  '',
+                  rocket_value)
 
 
 def rocket_to_ae(field_type, rocket_value):
