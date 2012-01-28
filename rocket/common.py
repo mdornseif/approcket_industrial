@@ -29,44 +29,7 @@ TYPE_STR = "str"
 TYPE_EMB_LIST = "emb_list"
 TYPE_BLOB = "blob"
 
-DEFAULT_TIMESTAMP_FIELD = "timestamp"
-DEFAULT_KEY_FIELD = "k"
-DEFAULT_BATCH_SIZE = 100
-
 TYPE = "TYPE"
-
-REPLICATION_SERVICE = "rocket.station.ReplicationService"
-
-KIND = "KIND"
-
-TIMESTAMP_FIELD = "TMSF"
-TABLE_NAME = "TBLN"
-TABLE_KEY_FIELD = "TBLK"
-
-MODE = "MODE"
-
-SEND_RECEIVE = "SR"
-RECEIVE_SEND = "RS"
-SEND = "S"
-RECEIVE = "R"
-
-RECEIVE_FIELDS = "RF"
-RECEIVE_FIELDS_EXCLUDE = "RFE"
-
-SEND_FIELDS = "SF"
-SEND_FIELDS_EXCLUDE = "SFE"
-
-EMBEDDED_LIST_FIELDS = "ELF"
-
-AFTER_SEND = "AFTER_SEND"
-
-IDLE_TIME = "IDLE"
-
-
-def escape(text):
-    return text.replace('&', '&amp;').replace('<', '&lt;').replace(
-                        '>', '&gt;').replace('"', '&quot;').replace(
-                        "'", '&#39;')
 
 
 def from_iso(s):
@@ -76,19 +39,3 @@ def from_iso(s):
     except:
         pass
     return dt
-
-
-def to_iso(dt):
-    return dt.isoformat()
-
-
-class Log:
-    def __init__(self, f):
-        self.f = f
-
-    def write(self, s):
-        sys.stdout.write(s)
-        self.f.write(s)
-
-    def flush(self):
-        self.f.flush()

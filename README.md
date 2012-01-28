@@ -39,3 +39,25 @@ Your models need an automatically timestamped files like this:
     timestamp = db.DateTimeProperty(auto_now=True, indexed=True)
 
 If you have created the field with `indexed=False` approcket can not work.
+
+
+Starting Replication
+-------------------
+
+Execute something like this on your database server:
+
+    (cd $BASEDIR/approcket_industrial/rocket ; \
+        ./replicator.py \
+        --database_name=mydb \
+        --database_user=mydbuser \
+        --database_password=ph7etaXii5Ajek8a \
+        --rocketurl=http://myapp.appspot.com/rocket \
+        -s 4eabfa74e5d1c9c47e961156f0517205b4486b74 )
+
+
+History
+=======
+
+The fantatic approcket was originaly concived by Kaspars Dancis and [published on github][1]. `approcket_industrial` is a fork removing features and adding robustness and code which is easier to audit. `approcket_industrial` saves resources by using datastore cursors. It ensures that data only flows in a single direction (from AppEngine to mySQL) and can handle characters illegal in XML. It also ensures keymaterial is kept out of version control.
+
+[1]: https://github.com/k7d/approcket

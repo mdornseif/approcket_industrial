@@ -20,7 +20,7 @@ import base64
 import logging
 import re
 
-from google.appengine.api import datastore, datastore_types, datastore_errors
+from google.appengine.api import datastore, datastore_types
 from google.appengine.api import lib_config
 from google.appengine.datastore import datastore_query
 from google.appengine.ext.db import stats
@@ -74,8 +74,6 @@ class Rocket(webapp.RequestHandler):
             self.response.out.write(u'<error>Server Error: %s</error>\n' % error)
 
     def get(self, kind):
-        path = self.request.path.split("/")
-
         self.response.headers['Content-Type'] = 'text/xml'
 
         if _config.SECRET_KEY == CHANGE_THIS:
@@ -87,8 +85,8 @@ class Rocket(webapp.RequestHandler):
         self.response.out.write(u'<?xml version="1.0" encoding="UTF-8"?>\n')
         self.response.out.write(u'<updates>\n')
 
-        timestamp_field = self.request.get("timestamp", DEFAULT_TIMESTAMP_FIELD)
-        batch_size = int(self.request.get("count", DEFAULT_BATCH_SIZE))
+        timestamp_field = self.request.get("timestamp", 'updated_at')
+        batch_size = int(self.request.get("count", 100))
 
         if self.request.get("cursor"):
             cursor = self.request.get("cursor")
@@ -132,84 +130,6 @@ class Rocket(webapp.RequestHandler):
 
         self.response.out.write(u'     <_cursor type="str">%s</_cursor>' % str(query.GetCursor().to_websafe_string()))
         self.response.out.write(u'</updates>')
-
-    def post(self):
-        path = self.request.path.split("/")
-
-        self.response.headers['Content-Type'] = 'text/plain'
-
-        if SECRET_KEY == CHANGE_THIS:
-            return self.unauthorized("Please change the default secret key in key.py")
-
-        if self.request.get("secret_key") != _config.SECRET_KEY:
-            return self.unauthorized()
-
-        if len(path) < 3 or path[2] == '':
-            return self.bad_request(u'Please specify an entity kind\n')
-
-        kind = path[2]
-
-        entity = None
-        clear_cache = False
-
-        key_name_or_id = self.request.get(TYPE_KEY)
-        if key_name_or_id:
-            if key_name_or_id[0] in "0123456789":
-                key = datastore.Key.from_path(kind, int(key_name_or_id))  # KEY ID
-            else:
-                key = datastore.Key.from_path(kind, key_name_or_id)  # KEY NAME
-
-            try:
-                entity = datastore.Get(key)
-            except datastore_errors.EntityNotFoundError:
-                pass
-
-        if not entity:
-            if key_name_or_id:
-
-                if key_name_or_id[0] in "0123456789":
-                    return self.not_found(u'Entity with AppEngine ID=%s is not found.\n' % key_name_or_id)
-
-                entity = datastore.Entity(kind=kind, name=key_name_or_id)
-            else:
-                entity = datastore.Entity(kind=kind)
-        else:
-            clear_cache = True
-
-        args = self.request.arguments()
-        for arg in args:
-            if arg != TYPE_KEY:
-                bar = arg.find('|')
-                if bar > 0:
-                    field_type = arg[:bar]
-                    field_name = arg[bar + 1:]
-                    value = self.request.get(arg)
-                    if field_type.startswith("*"):
-                        field_type = field_type[1:]
-                        if len(value) == 0:
-                            if field_name in entity:
-                                del entity[field_name]
-                        else:
-                            entity[field_name] = map(lambda v: rocket_to_ae(field_type, v), value.split('|'))
-                    else:
-                        entity[field_name] = rocket_to_ae(field_type, value)
-
-        datastore.Put(entity)
-
-        after_send = self.request.get("after_send")
-        if after_send:
-            try:
-                i = after_send.rfind('.')
-                if i <= 0:
-                    raise Exception("No module specified")
-                p = after_send[:i]
-                m = after_send[i + 1:]
-                exec "from %s import %s as after_send_method" % (p, m) in locals()
-                exec "after_send_method(entity)" in locals()
-            except Exception, e:
-                return self.server_error("Error invoking AFTER_SEND event handler (%s)" % after_send, e)
-
-        self.response.out.write(u'<ok/>')
 
 
 def get_type(value):
@@ -261,40 +181,6 @@ def ae_to_rocket(field_type, ae_value):
                   rocket_value)
 
 
-def rocket_to_ae(field_type, rocket_value):
-    if not rocket_value:
-        ae_value = None
-    elif field_type == TYPE_DATETIME or field_type == TYPE_TIMESTAMP:
-        ae_value = from_iso(rocket_value)
-    elif field_type == TYPE_BOOL:
-        ae_value = bool(int(rocket_value))
-    elif field_type == TYPE_LONG:
-        ae_value = long(rocket_value)
-    elif field_type == TYPE_FLOAT:
-        ae_value = float(rocket_value)
-    elif field_type == TYPE_INT:
-        ae_value = int(rocket_value)
-    elif field_type == TYPE_TEXT:
-        ae_value = datastore_types.Text(rocket_value.replace('&#124;', '|'))
-    elif field_type == TYPE_REFERENCE:
-        slash = rocket_value.find("/")
-        if slash > 0:
-            kind = rocket_value[:slash]
-            key_name_or_id = rocket_value[slash + 1:]
-            if key_name_or_id[0] in "0123456789":
-                key_name_or_id = int(key_name_or_id)
-            ae_value = datastore.Key.from_path(kind, key_name_or_id)
-        else:
-            logging.error("invalid reference value: %s" % rocket_value)
-            ae_value = None
-    elif field_type == TYPE_BLOB:
-        ae_value = datastore_types.Blob(base64.b64decode(rocket_value))
-    else:  # str
-        ae_value = (u"%s" % rocket_value).replace('&#124;', '|')
-
-    return ae_value
-
-
 class RocketModelList(Rocket):
     """Get a List of all Models in this Application"""
 
@@ -307,6 +193,17 @@ class RocketModelList(Rocket):
         for kind in stats.KindStat.all().run():
             if not kind.kind_name.startswith('_'):
                 self.response.out.write('%s\n' % kind.kind_name)
+
+
+def escape(text):
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace(
+                        '>', '&gt;').replace('"', '&quot;').replace(
+                        "'", '&#39;')
+
+
+def to_iso(dt):
+    return dt.isoformat()
+
 
 application = webapp.WSGIApplication(
     [('/rocket/_modellist.txt', RocketModelList),

@@ -211,8 +211,7 @@ def receive_row(cur, table, entity):
 
     table = get_table_metadata(cur, table)
     key = hashlib.md5(entity.attrib["datastorekey"]).hexdigest()
-    row = None
-    parent = entity.attrib["parent"]
+    # parent = entity.attrib["parent"]
 
     for field in entity:
         field_name = field.tag
@@ -389,6 +388,10 @@ def get_model_list(options):
 def main():
     global options
     parser = OptionParser()
+    parser.add_option("-l", "--loop", type="store_true",
+                      help="start replication again every few seconds - never exit")
+    parser.add_option("-w", "--wait", type="int", default=3600,
+                      help="when using `--loop` wait that many seconds between runs [%efault]")
     parser.add_option("-d", "--debug", action="store_true",
                       help="output debugging information")
     parser.add_option("-q", "--quiet", action="store_true",
