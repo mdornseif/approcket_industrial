@@ -21,24 +21,14 @@
 
 import base64
 import logging
-import os
-import sys
-import time
 import urllib
 import hashlib
-from datetime import timedelta
 from optparse import OptionParser
-from sys import stdout
 from xml.etree import ElementTree
-from xml.parsers.expat import ExpatError
 
 import MySQLdb as db
 
 from common import *
-
-
-TIMESTAMP_FIELD = 'updated_at'
-BATCH_SIZE = 5
 
 
 def get_db_connection():
@@ -121,14 +111,14 @@ def setup_table(kind):
     cur.execute('SHOW tables LIKE "%s"' % table_name)
     if cur.fetchone():  # table exist
         # start with empty definition
-        table = Table(kind, TIMESTAMP_FIELD)
+        table = Table(kind, options.timestamp_property)
         # add table fields
         cur.execute('SHOW COLUMNS FROM %s' % table_name)
         for col in cur.fetchall():
             field_name = col[0]
             field_type = normalize_type(field_name, col[1])
             table.fields[field_name] = field_type
-    
+
         # add list fields stored in separate self.tables (TableName_ListField)
         cur.execute('SHOW tables LIKE "%s_%%"' % table_name)
         for row in cur.fetchall():
@@ -150,18 +140,21 @@ def setup_table(kind):
                ENGINE = %s CHARACTER SET utf8 COLLATE utf8_general_ci""" % (
                 table_name,
                 '_key',
-                TIMESTAMP_FIELD,
+                options.timestamp_property,
                 '_key',
-                TIMESTAMP_FIELD,
-                TIMESTAMP_FIELD,
+                options.timestamp_property,
+                options.timestamp_property,
                 options.database_engine,
             ))
-        table = Table(table_name, TIMESTAMP_FIELD)
+        table = Table(table_name, options.timestamp_property)
     con.commit()
     cur.close()
     # reading existing replication state if available
-    table._receive_state, table._receive_cursor = get_state(kind)
-    logging.info("Table setup for %s done", kind)
+    if options.restart:
+        table._receive_state, table._receive_cursor = None, None
+    else:
+        table._receive_state, table._receive_cursor = get_state(kind)
+        logging.info("Table setup for %s done", kind)
     return table
 
 
@@ -174,16 +167,19 @@ def replicate(kind, options):
     while count == options.batchsize:
         count = 0
         url = "%s/%s?secret_key=%s&count=%d" % (options.rocketurl, kind, options.secretkey, options.batchsize)
-        if table._receive_cursor:
+
+        if table._receive_cursor and not options.no_cursor:
             url += "&cursor=%s" % table._receive_cursor
             logging.info("Receive %s: from %s" % (kind, table._receive_cursor))
         else:
-            url += "&timestamp=%s" % table.timestamp_field
             if table._receive_state:
                 url += "&from=%s" % table._receive_state
                 logging.info("Receive %s: from %s" % (kind, table._receive_state))
             else:
                 logging.info("Receive %s: from beginning" % (kind))
+
+        if not options.no_sort:
+            url += "&timestamp=%s" % table.timestamp_field
 
         result = urllib.urlopen(url)
         response = result.read()
@@ -405,6 +401,14 @@ def main():
                       help="url where approcket is running on GAE")
     parser.add_option("-b", "--batchsize", type="int", default=250,
                       help="entitys to transfer per HTTP-Request [%default]")
+    parser.add_option("-t", "--timestamp_property", default='updated_at',
+                      help="property name of timestamps [%default]")
+    parser.add_option("-n", "--no-sort", action="store_true",
+                      help="do not sort by `timestamp_property` - helpful if indexin is messed up.")
+    parser.add_option("-c", "--no-cursor", action="store_true",
+                      help="do not use cursor based iteration.")
+    parser.add_option("--restart", action="store_true",
+                      help="ignore saved state and replicate from the beginning.")
     parser.add_option("--database_host", default="localhost",
                       help="MySQL host [%default]")
     parser.add_option("--database_name", default="approcket",
