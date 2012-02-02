@@ -388,7 +388,7 @@ def get_model_list(options):
 def main():
     global options
     parser = OptionParser()
-    parser.add_option("-l", "--loop", type="store_true",
+    parser.add_option("-l", "--loop", action="store_true",
                       help="start replication again every few seconds - never exit")
     parser.add_option("-w", "--wait", type="int", default=3600,
                       help="when using `--loop` wait that many seconds between runs [%efault]")
