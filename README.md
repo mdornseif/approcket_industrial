@@ -5,8 +5,8 @@ Installation on AppEngine
 
 You need to put  `rocket.py` somewhere into your application. E.g
 
-    mkdir lib
-    git sublodule add https://github.com/mdornseif/approcket_industrial.git lib/approcket_industrial
+    mkdir -P lib
+    git submodule add https://github.com/mdornseif/approcket_industrial.git lib/approcket_industrial
     echo "import os.path" > lib/__init__.py
     echo "import site" >> lib/__init__.py
     echo "site.addsitedir(os.path.dirname(__file__))" >> lib/__init__.py
