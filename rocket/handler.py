@@ -27,7 +27,7 @@ from google.appengine.ext.db import stats
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 
-# Try to export additional libraries in `/lib/` subdirectory.
+# Try to import additional libraries in `/lib/` subdirectory.
 try:
     import lib
 except ImportError:
